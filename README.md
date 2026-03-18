@@ -1,14 +1,15 @@
-# Marketing Agency Lead Discovery
+# Lead Discovery — NYC Wellness
 
-Discover NYC wellness businesses and audit their AI visibility to find the best leads for a digital marketing agency.
+A Next.js web dashboard that discovers NYC wellness businesses and audits their AI visibility to find the best leads for a digital marketing agency.
 
 ## How It Works
 
-1. **Discovery** — Uses Claude to find independent, boutique wellness businesses across NYC neighborhoods
-2. **Audit** — Scores each business on AI visibility (0-10) — how likely they are to be recommended by ChatGPT, Perplexity, and Google AI
-3. **Output** — Generates CSV and JSON reports with lead categorization
+1. **Pick** a neighborhood and business category from the sidebar
+2. **Click** "Discover & Audit" — Claude AI finds real businesses and scores their visibility
+3. **Browse** the results table sorted by lead quality (hottest leads first)
+4. **Click** any lead to see full details: AI scores, gaps, quick wins, and a simulated ChatGPT response
 
-### Lead Categories (inverted — low visibility = hot lead)
+### Lead Categories
 
 | AI Score | Category | Meaning |
 |----------|----------|---------|
@@ -22,40 +23,23 @@ Discover NYC wellness businesses and audit their AI visibility to find the best 
 
 ```bash
 npm install
-cp .env.example .env
-# Add your Anthropic API key to .env
+cp .env.example .env.local
+# Add your Anthropic API key to .env.local
+npm run dev
 ```
 
-## Usage
+Open http://localhost:3000 in your browser.
 
-```bash
-# Full pipeline — all neighborhoods and categories
-npm start
+## Deploy to Vercel
 
-# Specific neighborhoods and categories
-node src/index.js -n "Tribeca,SoHo" -c "Yoga Studios,Pilates Studios"
+1. Push to GitHub
+2. Import the repo at vercel.com/new
+3. Add `ANTHROPIC_API_KEY` as an environment variable
+4. Deploy
 
-# Discovery only (no audit)
-node src/index.js --discovery-only
+## Tech Stack
 
-# Audit from previously discovered businesses
-node src/index.js --skip-discovery output/discovered_2026-03-18.json
-
-# Dry run — see what would be processed
-node src/index.js --dry-run
-```
-
-## Output
-
-Results are saved to `./output/`:
-- `leads_YYYY-MM-DD.json` — Full lead data
-- `leads_YYYY-MM-DD.csv` — Spreadsheet-ready format
-- `summary_YYYY-MM-DD.json` — Category breakdown
-- `discovered_YYYY-MM-DD.json` — Intermediate discovery results
-
-## Configuration
-
-Edit `src/config.js` to customize:
-- **Neighborhoods** — NYC neighborhoods to search
-- **Categories** — Wellness business types to find
-- **Lead thresholds** — Score ranges for lead categorization
+- Next.js 14 (App Router)
+- Tailwind CSS
+- Claude API (Anthropic SDK)
+- TypeScript

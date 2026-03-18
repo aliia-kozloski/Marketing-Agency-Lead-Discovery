@@ -1,0 +1,144 @@
+"use client";
+
+import { Lead } from "@/lib/types";
+
+interface LeadTableProps {
+  leads: Lead[];
+  onSelectLead: (lead: Lead) => void;
+  selectedLead: Lead | null;
+}
+
+function ScoreBadge({ score }: { score: number }) {
+  const bg =
+    score <= 2
+      ? "bg-red-100 text-red-800"
+      : score <= 4
+      ? "bg-orange-100 text-orange-800"
+      : score <= 6
+      ? "bg-yellow-100 text-yellow-800"
+      : score <= 8
+      ? "bg-blue-100 text-blue-800"
+      : "bg-gray-100 text-gray-800";
+
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${bg}`}>
+      {score}/10
+    </span>
+  );
+}
+
+function CategoryBadge({ category }: { category: string }) {
+  const styles: Record<string, string> = {
+    "HOT LEAD": "bg-red-600 text-white",
+    "WARM LEAD": "bg-orange-500 text-white",
+    LUKEWARM: "bg-yellow-500 text-gray-900",
+    "LOW PRIORITY": "bg-blue-500 text-white",
+    "DO NOT CONTACT": "bg-gray-400 text-white",
+  };
+
+  return (
+    <span
+      className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-bold ${
+        styles[category] || "bg-gray-200 text-gray-800"
+      }`}
+    >
+      {category}
+    </span>
+  );
+}
+
+export default function LeadTable({
+  leads,
+  onSelectLead,
+  selectedLead,
+}: LeadTableProps) {
+  if (leads.length === 0) {
+    return (
+      <div className="flex-1 flex items-center justify-center text-gray-400">
+        <div className="text-center">
+          <svg
+            className="mx-auto h-12 w-12 text-gray-300"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={1}
+              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+            />
+          </svg>
+          <p className="mt-4 text-sm">
+            Select a neighborhood and category, then click{" "}
+            <strong>Discover & Audit</strong> to find leads.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-1 overflow-auto">
+      <table className="w-full text-sm">
+        <thead className="bg-gray-50 sticky top-0 z-10">
+          <tr>
+            <th className="text-left px-4 py-3 font-medium text-gray-500 uppercase text-xs tracking-wide">
+              Business
+            </th>
+            <th className="text-left px-4 py-3 font-medium text-gray-500 uppercase text-xs tracking-wide">
+              AI Score
+            </th>
+            <th className="text-left px-4 py-3 font-medium text-gray-500 uppercase text-xs tracking-wide">
+              Lead Status
+            </th>
+            <th className="text-left px-4 py-3 font-medium text-gray-500 uppercase text-xs tracking-wide">
+              Visibility
+            </th>
+            <th className="text-left px-4 py-3 font-medium text-gray-500 uppercase text-xs tracking-wide">
+              Quick Win
+            </th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-100">
+          {leads.map((lead, i) => (
+            <tr
+              key={`${lead.name}-${i}`}
+              onClick={() => onSelectLead(lead)}
+              className={`cursor-pointer transition-colors hover:bg-indigo-50 ${
+                selectedLead?.name === lead.name ? "bg-indigo-50" : ""
+              }`}
+            >
+              <td className="px-4 py-3">
+                <div className="font-medium text-gray-900">{lead.name}</div>
+                <div className="text-xs text-gray-500">{lead.address}</div>
+              </td>
+              <td className="px-4 py-3">
+                <ScoreBadge score={lead.aiScore} />
+              </td>
+              <td className="px-4 py-3">
+                <CategoryBadge category={lead.leadCategory} />
+              </td>
+              <td className="px-4 py-3">
+                <span
+                  className={`text-xs capitalize ${
+                    lead.visibilityStatus === "not_found"
+                      ? "text-red-600"
+                      : lead.visibilityStatus === "mentioned"
+                      ? "text-yellow-600"
+                      : "text-green-600"
+                  }`}
+                >
+                  {lead.visibilityStatus?.replace("_", " ")}
+                </span>
+              </td>
+              <td className="px-4 py-3 text-xs text-gray-600 max-w-xs truncate">
+                {lead.quickWin}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
