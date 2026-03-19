@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
+import Providers from "@/components/Providers";
 import "./globals.css";
 
 const geistSans = localFont({
@@ -14,9 +15,9 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "Lead Discovery — NYC Wellness",
+  title: "Aliia Admin — Lead Discovery & Outreach",
   description:
-    "Discover and audit NYC wellness businesses for AI visibility. Find the best leads for your agency.",
+    "Internal admin portal for Aliia agency. Discover leads, audit AI visibility, and manage outreach.",
 };
 
 export default function RootLayout({
@@ -29,7 +30,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {children}
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

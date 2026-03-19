@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import Sidebar from "@/components/Sidebar";
 import LeadTable from "@/components/LeadTable";
 import LeadDetail from "@/components/LeadDetail";
@@ -8,6 +8,11 @@ import StatusBar from "@/components/StatusBar";
 import { Lead } from "@/lib/types";
 
 type Phase = "idle" | "discovering" | "auditing" | "done" | "error";
+
+interface SavedLeadInfo {
+  id: number;
+  emailStatus: string;
+}
 
 export default function Home() {
   const [neighborhood, setNeighborhood] = useState("");
@@ -17,6 +22,46 @@ export default function Home() {
   const [phase, setPhase] = useState<Phase>("idle");
   const [statusMessage, setStatusMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const [savedLeadMap, setSavedLeadMap] = useState<
+    Map<string, SavedLeadInfo>
+  >(new Map());
+  const [outreachStats, setOutreachStats] = useState({
+    totalSaved: 0,
+    emailsDrafted: 0,
+    emailsSent: 0,
+  });
+  const [emailStatusFilter, setEmailStatusFilter] = useState("");
+
+  // Generate a stable key for a lead
+  const leadKey = (lead: { name: string; neighborhood: string; category: string }) =>
+    `${lead.name}::${lead.neighborhood}::${lead.category}`;
+
+  // Fetch saved leads on mount and refresh stats
+  const refreshSavedLeads = useCallback(async () => {
+    try {
+      const res = await fetch("/api/leads?statsOnly=true");
+      if (res.ok) {
+        const { stats } = await res.json();
+        setOutreachStats(stats);
+      }
+
+      const fullRes = await fetch("/api/leads");
+      if (fullRes.ok) {
+        const { leads: savedLeads } = await fullRes.json();
+        const map = new Map<string, SavedLeadInfo>();
+        for (const sl of savedLeads) {
+          map.set(leadKey(sl), { id: sl.id, emailStatus: sl.emailStatus });
+        }
+        setSavedLeadMap(map);
+      }
+    } catch {
+      // Silently fail — stats are non-critical
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshSavedLeads();
+  }, [refreshSavedLeads]);
 
   const handleSearch = useCallback(async () => {
     if (!neighborhood || !category) return;
@@ -25,12 +70,9 @@ export default function Home() {
     setLeads([]);
     setSelectedLead(null);
     setPhase("discovering");
-    setStatusMessage(
-      `Finding ${category} in ${neighborhood}...`
-    );
+    setStatusMessage(`Finding ${category} in ${neighborhood}...`);
 
     try {
-      // Phase 1: Discovery
       const discoverRes = await fetch("/api/discover", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -56,7 +98,6 @@ export default function Home() {
       );
       setPhase("auditing");
 
-      // Phase 2: Audit
       const auditRes = await fetch("/api/audit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -70,7 +111,6 @@ export default function Home() {
 
       const { leads: auditedLeads } = await auditRes.json();
 
-      // Sort by AI score ascending (lowest = hottest lead)
       auditedLeads.sort(
         (a: Lead, b: Lead) => (a.aiScore ?? 99) - (b.aiScore ?? 99)
       );
@@ -80,6 +120,9 @@ export default function Home() {
       setStatusMessage(
         `Done! Found ${auditedLeads.length} leads for ${category} in ${neighborhood}.`
       );
+
+      // Refresh saved lead map to show correct saved status
+      refreshSavedLeads();
     } catch (err) {
       setPhase("error");
       setStatusMessage(
@@ -88,7 +131,40 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }, [neighborhood, category]);
+  }, [neighborhood, category, refreshSavedLeads]);
+
+  const handleSaveLead = useCallback(
+    async (lead: Lead) => {
+      try {
+        const res = await fetch("/api/leads", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(lead),
+        });
+
+        if (res.status === 409) {
+          return { success: false, duplicate: true };
+        }
+
+        if (!res.ok) throw new Error("Save failed");
+
+        const { lead: savedLead } = await res.json();
+        setSavedLeadMap((prev) => {
+          const next = new Map(prev);
+          next.set(leadKey(lead), {
+            id: savedLead.id,
+            emailStatus: savedLead.emailStatus,
+          });
+          return next;
+        });
+        refreshSavedLeads();
+        return { success: true, savedId: savedLead.id };
+      } catch {
+        return { success: false, duplicate: false };
+      }
+    },
+    [refreshSavedLeads]
+  );
 
   // Compute lead category counts
   const leadCounts: Record<string, number> = {};
@@ -107,6 +183,9 @@ export default function Home() {
         onSearch={handleSearch}
         loading={loading}
         leadCounts={leadCounts}
+        outreachStats={outreachStats}
+        emailStatusFilter={emailStatusFilter}
+        onEmailStatusFilterChange={setEmailStatusFilter}
       />
 
       <main className="flex-1 flex flex-col min-h-screen">
@@ -115,6 +194,8 @@ export default function Home() {
           leads={leads}
           onSelectLead={setSelectedLead}
           selectedLead={selectedLead}
+          savedLeadMap={savedLeadMap}
+          leadKey={leadKey}
         />
       </main>
 
@@ -122,6 +203,9 @@ export default function Home() {
         <LeadDetail
           lead={selectedLead}
           onClose={() => setSelectedLead(null)}
+          savedInfo={savedLeadMap.get(leadKey(selectedLead)) || null}
+          onSave={handleSaveLead}
+          onLeadUpdated={refreshSavedLeads}
         />
       )}
     </div>

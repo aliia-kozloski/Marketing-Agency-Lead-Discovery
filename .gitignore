@@ -29,6 +29,9 @@ yarn-error.log*
 .env*.local
 .env
 
+# SQLite data
+/data
+
 # output
 /output
 

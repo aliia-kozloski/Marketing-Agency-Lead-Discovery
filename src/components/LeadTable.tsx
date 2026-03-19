@@ -2,10 +2,17 @@
 
 import { Lead } from "@/lib/types";
 
+interface SavedLeadInfo {
+  id: number;
+  emailStatus: string;
+}
+
 interface LeadTableProps {
   leads: Lead[];
   onSelectLead: (lead: Lead) => void;
   selectedLead: Lead | null;
+  savedLeadMap: Map<string, SavedLeadInfo>;
+  leadKey: (lead: { name: string; neighborhood: string; category: string }) => string;
 }
 
 function ScoreBadge({ score }: { score: number }) {
@@ -47,10 +54,34 @@ function CategoryBadge({ category }: { category: string }) {
   );
 }
 
+function EmailStatusBadge({ status }: { status: string }) {
+  if (status === "sent") {
+    return (
+      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+        Sent
+      </span>
+    );
+  }
+  if (status === "draft") {
+    return (
+      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800">
+        Draft
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600">
+      Saved
+    </span>
+  );
+}
+
 export default function LeadTable({
   leads,
   onSelectLead,
   selectedLead,
+  savedLeadMap,
+  leadKey,
 }: LeadTableProps) {
   if (leads.length === 0) {
     return (
@@ -96,47 +127,65 @@ export default function LeadTable({
               Visibility
             </th>
             <th className="text-left px-4 py-3 font-medium text-gray-500 uppercase text-xs tracking-wide">
+              Outreach
+            </th>
+            <th className="text-left px-4 py-3 font-medium text-gray-500 uppercase text-xs tracking-wide">
               Quick Win
             </th>
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-100">
-          {leads.map((lead, i) => (
-            <tr
-              key={`${lead.name}-${i}`}
-              onClick={() => onSelectLead(lead)}
-              className={`cursor-pointer transition-colors hover:bg-indigo-50 ${
-                selectedLead?.name === lead.name ? "bg-indigo-50" : ""
-              }`}
-            >
-              <td className="px-4 py-3">
-                <div className="font-medium text-gray-900">{lead.name}</div>
-                <div className="text-xs text-gray-500">{lead.address}</div>
-              </td>
-              <td className="px-4 py-3">
-                <ScoreBadge score={lead.aiScore} />
-              </td>
-              <td className="px-4 py-3">
-                <CategoryBadge category={lead.leadCategory} />
-              </td>
-              <td className="px-4 py-3">
-                <span
-                  className={`text-xs capitalize ${
-                    lead.visibilityStatus === "not_found"
-                      ? "text-red-600"
-                      : lead.visibilityStatus === "mentioned"
-                      ? "text-yellow-600"
-                      : "text-green-600"
-                  }`}
-                >
-                  {lead.visibilityStatus?.replace("_", " ")}
-                </span>
-              </td>
-              <td className="px-4 py-3 text-xs text-gray-600 max-w-xs truncate">
-                {lead.quickWin}
-              </td>
-            </tr>
-          ))}
+          {leads.map((lead, i) => {
+            const key = leadKey(lead);
+            const savedInfo = savedLeadMap.get(key);
+            const isSelected = selectedLead
+              ? leadKey(selectedLead) === key
+              : false;
+
+            return (
+              <tr
+                key={`${key}-${i}`}
+                onClick={() => onSelectLead(lead)}
+                className={`cursor-pointer transition-colors hover:bg-indigo-50 ${
+                  isSelected ? "bg-indigo-50" : ""
+                }`}
+              >
+                <td className="px-4 py-3">
+                  <div className="font-medium text-gray-900">{lead.name}</div>
+                  <div className="text-xs text-gray-500">{lead.address}</div>
+                </td>
+                <td className="px-4 py-3">
+                  <ScoreBadge score={lead.aiScore} />
+                </td>
+                <td className="px-4 py-3">
+                  <CategoryBadge category={lead.leadCategory} />
+                </td>
+                <td className="px-4 py-3">
+                  <span
+                    className={`text-xs capitalize ${
+                      lead.visibilityStatus === "not_found"
+                        ? "text-red-600"
+                        : lead.visibilityStatus === "mentioned"
+                        ? "text-yellow-600"
+                        : "text-green-600"
+                    }`}
+                  >
+                    {lead.visibilityStatus?.replace("_", " ")}
+                  </span>
+                </td>
+                <td className="px-4 py-3">
+                  {savedInfo ? (
+                    <EmailStatusBadge status={savedInfo.emailStatus} />
+                  ) : (
+                    <span className="text-xs text-gray-400">-</span>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-xs text-gray-600 max-w-xs truncate">
+                  {lead.quickWin}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
