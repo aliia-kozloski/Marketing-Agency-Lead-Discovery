@@ -1,11 +1,6 @@
 "use client";
 
-import { Lead } from "@/lib/types";
-
-interface SavedLeadInfo {
-  id: number;
-  emailStatus: string;
-}
+import { Lead, SavedLeadInfo } from "@/lib/types";
 
 interface LeadTableProps {
   leads: Lead[];

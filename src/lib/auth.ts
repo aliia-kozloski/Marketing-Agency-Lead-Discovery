@@ -1,5 +1,6 @@
 import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
+import crypto from "crypto";
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -13,7 +14,14 @@ export const authOptions: NextAuthOptions = {
         if (!adminPassword) {
           throw new Error("ADMIN_PASSWORD not configured");
         }
-        if (credentials?.password === adminPassword) {
+        const input = credentials?.password || "";
+        // Timing-safe comparison to prevent timing attacks
+        const inputBuf = Buffer.from(input.padEnd(adminPassword.length));
+        const expectedBuf = Buffer.from(adminPassword.padEnd(input.length));
+        if (
+          inputBuf.length === expectedBuf.length &&
+          crypto.timingSafeEqual(inputBuf, expectedBuf)
+        ) {
           return { id: "1", name: "Admin", email: "admin@aliia.agency" };
         }
         return null;
@@ -22,7 +30,7 @@ export const authOptions: NextAuthOptions = {
   ],
   session: {
     strategy: "jwt",
-    maxAge: 30 * 24 * 60 * 60, // 30 days
+    maxAge: 7 * 24 * 60 * 60, // 7 days
   },
   pages: {
     signIn: "/login",

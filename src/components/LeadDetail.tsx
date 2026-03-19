@@ -1,12 +1,7 @@
 "use client";
 
-import { Lead } from "@/lib/types";
-import { useState, useCallback } from "react";
-
-interface SavedLeadInfo {
-  id: number;
-  emailStatus: string;
-}
+import { Lead, SavedLeadInfo } from "@/lib/types";
+import { useState, useCallback, useEffect } from "react";
 
 interface LeadDetailProps {
   lead: Lead;
@@ -45,6 +40,12 @@ function ScoreBar({ label, score }: { label: string; score: number }) {
   );
 }
 
+function safeHref(url: string | null): string | null {
+  if (!url) return null;
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  return `https://${url}`;
+}
+
 export default function LeadDetail({
   lead,
   onClose,
@@ -54,19 +55,36 @@ export default function LeadDetail({
 }: LeadDetailProps) {
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
-  const [localSavedInfo, setLocalSavedInfo] = useState<SavedLeadInfo | null>(
-    savedInfo
-  );
+  const [localSavedInfo, setLocalSavedInfo] = useState<SavedLeadInfo | null>(savedInfo);
   const [emailAddress, setEmailAddress] = useState("");
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
   const [generating, setGenerating] = useState(false);
   const [sending, setSending] = useState(false);
   const [emailError, setEmailError] = useState("");
-  const [emailSent, setEmailSent] = useState(
-    savedInfo?.emailStatus === "sent"
-  );
+  const [emailSent, setEmailSent] = useState(savedInfo?.emailStatus === "sent");
   const [showConfirmSend, setShowConfirmSend] = useState(false);
+
+  // Sync localSavedInfo when parent prop changes
+  useEffect(() => {
+    setLocalSavedInfo(savedInfo);
+    setEmailSent(savedInfo?.emailStatus === "sent");
+  }, [savedInfo]);
+
+  // Load saved email data when a saved lead is opened
+  useEffect(() => {
+    if (!savedInfo?.id) return;
+    fetch(`/api/leads/${savedInfo.id}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.lead) {
+          setEmailAddress(data.lead.emailAddress || "");
+          setEmailSubject(data.lead.emailSubject || "");
+          setEmailBody(data.lead.emailBody || "");
+        }
+      })
+      .catch(() => {});
+  }, [savedInfo?.id]);
 
   const categoryColor: Record<string, string> = {
     "HOT LEAD": "bg-red-600",
@@ -91,6 +109,28 @@ export default function LeadDetail({
     setSaving(false);
   }, [lead, onSave]);
 
+  const handleSaveDraft = useCallback(async () => {
+    if (!localSavedInfo) return;
+    try {
+      const res = await fetch(`/api/leads/${localSavedInfo.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          emailAddress,
+          emailSubject,
+          emailBody,
+          emailStatus: "draft",
+        }),
+      });
+      if (!res.ok) {
+        setEmailError("Failed to save draft");
+      }
+      onLeadUpdated();
+    } catch {
+      setEmailError("Failed to save draft");
+    }
+  }, [localSavedInfo, emailAddress, emailSubject, emailBody, onLeadUpdated]);
+
   const handleGenerateEmail = useCallback(async () => {
     if (!localSavedInfo) return;
     setGenerating(true);
@@ -98,11 +138,22 @@ export default function LeadDetail({
 
     // Save email address first
     if (emailAddress) {
-      await fetch(`/api/leads/${localSavedInfo.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ emailAddress }),
-      });
+      try {
+        const patchRes = await fetch(`/api/leads/${localSavedInfo.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ emailAddress }),
+        });
+        if (!patchRes.ok) {
+          setEmailError("Failed to save email address");
+          setGenerating(false);
+          return;
+        }
+      } catch {
+        setEmailError("Failed to save email address");
+        setGenerating(false);
+        return;
+      }
     }
 
     try {
@@ -122,7 +173,7 @@ export default function LeadDetail({
       setEmailBody(body);
 
       // Auto-save draft
-      await fetch(`/api/leads/${localSavedInfo.id}`, {
+      const draftRes = await fetch(`/api/leads/${localSavedInfo.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -131,7 +182,9 @@ export default function LeadDetail({
           emailStatus: "draft",
         }),
       });
-      setLocalSavedInfo({ ...localSavedInfo, emailStatus: "draft" });
+      if (draftRes.ok) {
+        setLocalSavedInfo({ ...localSavedInfo, emailStatus: "draft" });
+      }
       onLeadUpdated();
     } catch (err) {
       setEmailError(
@@ -142,28 +195,12 @@ export default function LeadDetail({
     }
   }, [localSavedInfo, emailAddress, onLeadUpdated]);
 
-  const handleSaveDraft = useCallback(async () => {
-    if (!localSavedInfo) return;
-    await fetch(`/api/leads/${localSavedInfo.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        emailAddress,
-        emailSubject,
-        emailBody,
-        emailStatus: "draft",
-      }),
-    });
-    onLeadUpdated();
-  }, [localSavedInfo, emailAddress, emailSubject, emailBody, onLeadUpdated]);
-
   const handleSendEmail = useCallback(async () => {
     if (!localSavedInfo) return;
     setSending(true);
     setEmailError("");
     setShowConfirmSend(false);
 
-    // Save latest draft first
     await handleSaveDraft();
 
     try {
@@ -193,6 +230,7 @@ export default function LeadDetail({
   const isSaved = !!localSavedInfo;
   const hasEmail = emailAddress.trim().length > 0;
   const hasDraft = emailSubject.length > 0 && emailBody.length > 0;
+  const websiteHref = safeHref(lead.website);
 
   return (
     <div className="w-[420px] border-l border-gray-200 bg-white h-screen overflow-y-auto sticky top-0">
@@ -214,18 +252,8 @@ export default function LeadDetail({
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600 p-1"
           >
-            <svg
-              className="w-5 h-5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M6 18L18 6M6 6l12 12"
-              />
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
@@ -242,26 +270,14 @@ export default function LeadDetail({
             </button>
           ) : (
             <div className="flex items-center gap-2 text-sm text-green-600 bg-green-50 rounded-lg px-3 py-2">
-              <svg
-                className="w-4 h-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M5 13l4 4L19 7"
-                />
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
               Lead saved
             </div>
           )}
           {saveMessage && !isSaved && (
-            <p className="text-xs text-gray-500 mt-1 text-center">
-              {saveMessage}
-            </p>
+            <p className="text-xs text-gray-500 mt-1 text-center">{saveMessage}</p>
           )}
         </div>
 
@@ -269,24 +285,9 @@ export default function LeadDetail({
         <div className="mb-6 space-y-2">
           <div className="flex items-start gap-2 text-sm">
             <span className="text-gray-400 mt-0.5">
-              <svg
-                className="w-4 h-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
-                />
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
-                />
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
             </span>
             <span className="text-gray-700">{lead.address}</span>
@@ -294,42 +295,22 @@ export default function LeadDetail({
           {lead.phone && (
             <div className="flex items-center gap-2 text-sm">
               <span className="text-gray-400">
-                <svg
-                  className="w-4 h-4"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
-                  />
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
                 </svg>
               </span>
               <span className="text-gray-700">{lead.phone}</span>
             </div>
           )}
-          {lead.website && (
+          {websiteHref && (
             <div className="flex items-center gap-2 text-sm">
               <span className="text-gray-400">
-                <svg
-                  className="w-4 h-4"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9"
-                  />
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9" />
                 </svg>
               </span>
               <a
-                href={lead.website}
+                href={websiteHref}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-indigo-600 hover:underline truncate"
@@ -373,16 +354,12 @@ export default function LeadDetail({
             <div className="flex items-center gap-4">
               {lead.googleRating && (
                 <div>
-                  <span className="text-2xl font-bold text-gray-900">
-                    {lead.googleRating}
-                  </span>
+                  <span className="text-2xl font-bold text-gray-900">{lead.googleRating}</span>
                   <span className="text-sm text-gray-400"> / 5</span>
                 </div>
               )}
               {lead.googleReviewCount && (
-                <div className="text-sm text-gray-500">
-                  {lead.googleReviewCount} reviews
-                </div>
+                <div className="text-sm text-gray-500">{lead.googleReviewCount} reviews</div>
               )}
             </div>
           </div>
@@ -390,31 +367,21 @@ export default function LeadDetail({
 
         {/* Analysis */}
         <div className="mb-6">
-          <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">
-            Score Reason
-          </h3>
+          <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Score Reason</h3>
           <p className="text-sm text-gray-700">{lead.scoreReason}</p>
         </div>
-
         <div className="mb-6">
-          <h3 className="text-xs font-medium text-red-400 uppercase tracking-wide mb-2">
-            Top Gap
-          </h3>
+          <h3 className="text-xs font-medium text-red-400 uppercase tracking-wide mb-2">Top Gap</h3>
           <p className="text-sm text-gray-700">{lead.topGap}</p>
         </div>
-
         <div className="mb-6">
-          <h3 className="text-xs font-medium text-green-500 uppercase tracking-wide mb-2">
-            Quick Win
-          </h3>
+          <h3 className="text-xs font-medium text-green-500 uppercase tracking-wide mb-2">Quick Win</h3>
           <p className="text-sm text-gray-700">{lead.quickWin}</p>
         </div>
 
         {/* ChatGPT Response Simulation */}
         <div className="mb-6">
-          <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">
-            ChatGPT Would Say
-          </h3>
+          <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">ChatGPT Would Say</h3>
           <div className="p-3 bg-gray-50 rounded-lg text-sm text-gray-600 italic border-l-4 border-gray-300">
             {lead.chatGPTResponse}
           </div>
@@ -429,30 +396,15 @@ export default function LeadDetail({
 
             {emailSent ? (
               <div className="bg-green-50 rounded-lg p-4 text-center">
-                <svg
-                  className="w-8 h-8 text-green-500 mx-auto mb-2"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                  />
+                <svg className="w-8 h-8 text-green-500 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <p className="text-sm font-medium text-green-800">
-                  Email sent!
-                </p>
+                <p className="text-sm font-medium text-green-800">Email sent!</p>
               </div>
             ) : (
               <>
-                {/* Email address input */}
                 <div className="mb-3">
-                  <label className="block text-xs text-gray-500 mb-1">
-                    Email address
-                  </label>
+                  <label className="block text-xs text-gray-500 mb-1">Email address</label>
                   <input
                     type="email"
                     value={emailAddress}
@@ -462,7 +414,6 @@ export default function LeadDetail({
                   />
                 </div>
 
-                {/* Generate button */}
                 <button
                   onClick={handleGenerateEmail}
                   disabled={!hasEmail || generating}
@@ -470,24 +421,9 @@ export default function LeadDetail({
                 >
                   {generating ? (
                     <span className="flex items-center justify-center gap-2">
-                      <svg
-                        className="animate-spin h-4 w-4"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                      >
-                        <circle
-                          className="opacity-25"
-                          cx="12"
-                          cy="12"
-                          r="10"
-                          stroke="currentColor"
-                          strokeWidth="4"
-                        />
-                        <path
-                          className="opacity-75"
-                          fill="currentColor"
-                          d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
-                        />
+                      <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
                       </svg>
                       Generating...
                     </span>
@@ -508,13 +444,10 @@ export default function LeadDetail({
                   <p className="text-xs text-red-500 mb-3">{emailError}</p>
                 )}
 
-                {/* Email draft editor */}
                 {hasDraft && (
                   <div className="space-y-3">
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">
-                        Subject
-                      </label>
+                      <label className="block text-xs text-gray-500 mb-1">Subject</label>
                       <input
                         type="text"
                         value={emailSubject}
@@ -524,9 +457,7 @@ export default function LeadDetail({
                       />
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">
-                        Body
-                      </label>
+                      <label className="block text-xs text-gray-500 mb-1">Body</label>
                       <textarea
                         value={emailBody}
                         onChange={(e) => setEmailBody(e.target.value)}
@@ -536,12 +467,10 @@ export default function LeadDetail({
                       />
                     </div>
 
-                    {/* Send button with confirmation */}
                     {showConfirmSend ? (
                       <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
                         <p className="text-xs text-yellow-800 mb-2">
-                          Send this email to{" "}
-                          <strong>{emailAddress}</strong>?
+                          Send this email to <strong>{emailAddress}</strong>?
                         </p>
                         <div className="flex gap-2">
                           <button

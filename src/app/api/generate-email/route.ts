@@ -71,12 +71,31 @@ Return ONLY the JSON, no explanation, no markdown, no backticks.
       messages: [{ role: "user", content: prompt }],
     });
 
-    const text =
+    let text =
       response.content[0].type === "text"
         ? response.content[0].text.trim()
         : "";
 
-    const email = JSON.parse(text);
+    // Strip markdown code fences if present
+    text = text.replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/, "");
+
+    let email;
+    try {
+      email = JSON.parse(text);
+    } catch {
+      console.error("Failed to parse email JSON:", text.substring(0, 200));
+      return NextResponse.json(
+        { error: "Failed to parse generated email. Please try again." },
+        { status: 500 }
+      );
+    }
+
+    if (!email.subject || !email.body) {
+      return NextResponse.json(
+        { error: "Generated email is missing subject or body. Please try again." },
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json({
       subject: email.subject,

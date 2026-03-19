@@ -155,9 +155,10 @@ export function insertLead(lead: Lead): SavedLead | null {
         lead.leadCategory
       );
 
-    if (result.changes === 0) return null; // duplicate
+    if (result.changes === 0) return null; // duplicate (UNIQUE constraint)
     return getLeadById(Number(result.lastInsertRowid));
-  } catch {
+  } catch (err) {
+    console.error("Failed to insert lead:", err);
     return null;
   }
 }

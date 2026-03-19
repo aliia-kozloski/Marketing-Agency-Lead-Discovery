@@ -15,17 +15,22 @@ export default function LoginPage() {
     setError("");
     setLoading(true);
 
-    const result = await signIn("credentials", {
-      password,
-      redirect: false,
-    });
+    try {
+      const result = await signIn("credentials", {
+        password,
+        redirect: false,
+      });
 
-    if (result?.error) {
-      setError("Invalid password");
+      if (result?.error) {
+        setError("Invalid password");
+      } else {
+        router.push("/");
+        router.refresh();
+      }
+    } catch {
+      setError("Something went wrong. Please try again.");
+    } finally {
       setLoading(false);
-    } else {
-      router.push("/");
-      router.refresh();
     }
   };
 

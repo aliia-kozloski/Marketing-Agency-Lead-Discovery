@@ -5,13 +5,13 @@ import Sidebar from "@/components/Sidebar";
 import LeadTable from "@/components/LeadTable";
 import LeadDetail from "@/components/LeadDetail";
 import StatusBar from "@/components/StatusBar";
-import { Lead } from "@/lib/types";
+import { Lead, SavedLeadInfo } from "@/lib/types";
 
 type Phase = "idle" | "discovering" | "auditing" | "done" | "error";
 
-interface SavedLeadInfo {
-  id: number;
-  emailStatus: string;
+// Stable key for deduplicating leads — defined outside component to avoid re-renders
+function leadKey(lead: { name: string; neighborhood: string; category: string }): string {
+  return `${lead.name}::${lead.neighborhood}::${lead.category}`;
 }
 
 export default function Home() {
@@ -32,30 +32,21 @@ export default function Home() {
   });
   const [emailStatusFilter, setEmailStatusFilter] = useState("");
 
-  // Generate a stable key for a lead
-  const leadKey = (lead: { name: string; neighborhood: string; category: string }) =>
-    `${lead.name}::${lead.neighborhood}::${lead.category}`;
-
-  // Fetch saved leads on mount and refresh stats
+  // Fetch saved leads and stats
   const refreshSavedLeads = useCallback(async () => {
     try {
-      const res = await fetch("/api/leads?statsOnly=true");
+      const res = await fetch("/api/leads");
       if (res.ok) {
-        const { stats } = await res.json();
-        setOutreachStats(stats);
-      }
-
-      const fullRes = await fetch("/api/leads");
-      if (fullRes.ok) {
-        const { leads: savedLeads } = await fullRes.json();
+        const { leads: savedLeads, stats } = await res.json();
         const map = new Map<string, SavedLeadInfo>();
         for (const sl of savedLeads) {
           map.set(leadKey(sl), { id: sl.id, emailStatus: sl.emailStatus });
         }
         setSavedLeadMap(map);
+        setOutreachStats(stats);
       }
     } catch {
-      // Silently fail — stats are non-critical
+      // Non-critical — stats will update on next refresh
     }
   }, []);
 
@@ -121,7 +112,6 @@ export default function Home() {
         `Done! Found ${auditedLeads.length} leads for ${category} in ${neighborhood}.`
       );
 
-      // Refresh saved lead map to show correct saved status
       refreshSavedLeads();
     } catch (err) {
       setPhase("error");
@@ -173,6 +163,15 @@ export default function Home() {
     leadCounts[cat] = (leadCounts[cat] || 0) + 1;
   }
 
+  // Filter leads by email status if filter is set
+  const filteredLeads = emailStatusFilter
+    ? leads.filter((lead) => {
+        const info = savedLeadMap.get(leadKey(lead));
+        if (!info) return emailStatusFilter === "not_saved";
+        return info.emailStatus === emailStatusFilter;
+      })
+    : leads;
+
   return (
     <div className="flex min-h-screen bg-white">
       <Sidebar
@@ -191,7 +190,7 @@ export default function Home() {
       <main className="flex-1 flex flex-col min-h-screen">
         <StatusBar phase={phase} message={statusMessage} />
         <LeadTable
-          leads={leads}
+          leads={filteredLeads}
           onSelectLead={setSelectedLead}
           selectedLead={selectedLead}
           savedLeadMap={savedLeadMap}
