@@ -10,6 +10,13 @@ interface SidebarProps {
   onSearch: () => void;
   loading: boolean;
   leadCounts: Record<string, number>;
+  outreachStats: {
+    totalSaved: number;
+    emailsDrafted: number;
+    emailsSent: number;
+  };
+  emailStatusFilter: string;
+  onEmailStatusFilterChange: (v: string) => void;
 }
 
 export default function Sidebar({
@@ -20,17 +27,62 @@ export default function Sidebar({
   onSearch,
   loading,
   leadCounts,
+  outreachStats,
+  emailStatusFilter,
+  onEmailStatusFilterChange,
 }: SidebarProps) {
   const totalLeads = Object.values(leadCounts).reduce((a, b) => a + b, 0);
 
   return (
     <aside className="w-72 bg-gray-900 text-white flex flex-col h-screen sticky top-0">
       <div className="p-6 border-b border-gray-700">
-        <h1 className="text-lg font-bold tracking-tight">Lead Discovery</h1>
-        <p className="text-xs text-gray-400 mt-1">NYC Wellness Businesses</p>
+        <h1 className="text-lg font-bold tracking-tight">Aliia Admin</h1>
+        <p className="text-xs text-gray-400 mt-1">Lead Discovery & Outreach</p>
       </div>
 
       <div className="p-6 flex-1 overflow-y-auto space-y-5">
+        {/* Outreach Stats */}
+        {outreachStats.totalSaved > 0 && (
+          <div className="pb-4 border-b border-gray-700">
+            <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">
+              Outreach
+            </h3>
+            <div className="grid grid-cols-3 gap-2">
+              <div className="text-center">
+                <div className="text-lg font-bold text-white">
+                  {outreachStats.totalSaved}
+                </div>
+                <div className="text-xs text-gray-500">Saved</div>
+              </div>
+              <div className="text-center">
+                <div className="text-lg font-bold text-purple-400">
+                  {outreachStats.emailsDrafted}
+                </div>
+                <div className="text-xs text-gray-500">Drafted</div>
+              </div>
+              <div className="text-center">
+                <div className="text-lg font-bold text-green-400">
+                  {outreachStats.emailsSent}
+                </div>
+                <div className="text-xs text-gray-500">Sent</div>
+              </div>
+            </div>
+
+            {/* Email status filter */}
+            <select
+              value={emailStatusFilter}
+              onChange={(e) => onEmailStatusFilterChange(e.target.value)}
+              className="w-full mt-3 bg-gray-800 border border-gray-600 rounded-lg px-3 py-1.5 text-xs focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+            >
+              <option value="">All leads</option>
+              <option value="not_sent">Not sent</option>
+              <option value="draft">Drafts</option>
+              <option value="sent">Sent</option>
+            </select>
+          </div>
+        )}
+
+        {/* Discovery Controls */}
         <div>
           <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">
             Neighborhood

@@ -1,13 +1,18 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import Sidebar from "@/components/Sidebar";
 import LeadTable from "@/components/LeadTable";
 import LeadDetail from "@/components/LeadDetail";
 import StatusBar from "@/components/StatusBar";
-import { Lead } from "@/lib/types";
+import { Lead, SavedLeadInfo } from "@/lib/types";
 
 type Phase = "idle" | "discovering" | "auditing" | "done" | "error";
+
+// Stable key for deduplicating leads — defined outside component to avoid re-renders
+function leadKey(lead: { name: string; neighborhood: string; category: string }): string {
+  return `${lead.name}::${lead.neighborhood}::${lead.category}`;
+}
 
 export default function Home() {
   const [neighborhood, setNeighborhood] = useState("");
@@ -17,6 +22,37 @@ export default function Home() {
   const [phase, setPhase] = useState<Phase>("idle");
   const [statusMessage, setStatusMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const [savedLeadMap, setSavedLeadMap] = useState<
+    Map<string, SavedLeadInfo>
+  >(new Map());
+  const [outreachStats, setOutreachStats] = useState({
+    totalSaved: 0,
+    emailsDrafted: 0,
+    emailsSent: 0,
+  });
+  const [emailStatusFilter, setEmailStatusFilter] = useState("");
+
+  // Fetch saved leads and stats
+  const refreshSavedLeads = useCallback(async () => {
+    try {
+      const res = await fetch("/api/leads");
+      if (res.ok) {
+        const { leads: savedLeads, stats } = await res.json();
+        const map = new Map<string, SavedLeadInfo>();
+        for (const sl of savedLeads) {
+          map.set(leadKey(sl), { id: sl.id, emailStatus: sl.emailStatus });
+        }
+        setSavedLeadMap(map);
+        setOutreachStats(stats);
+      }
+    } catch {
+      // Non-critical — stats will update on next refresh
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshSavedLeads();
+  }, [refreshSavedLeads]);
 
   const handleSearch = useCallback(async () => {
     if (!neighborhood || !category) return;
@@ -25,12 +61,9 @@ export default function Home() {
     setLeads([]);
     setSelectedLead(null);
     setPhase("discovering");
-    setStatusMessage(
-      `Finding ${category} in ${neighborhood}...`
-    );
+    setStatusMessage(`Finding ${category} in ${neighborhood}...`);
 
     try {
-      // Phase 1: Discovery
       const discoverRes = await fetch("/api/discover", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -56,7 +89,6 @@ export default function Home() {
       );
       setPhase("auditing");
 
-      // Phase 2: Audit
       const auditRes = await fetch("/api/audit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -70,7 +102,6 @@ export default function Home() {
 
       const { leads: auditedLeads } = await auditRes.json();
 
-      // Sort by AI score ascending (lowest = hottest lead)
       auditedLeads.sort(
         (a: Lead, b: Lead) => (a.aiScore ?? 99) - (b.aiScore ?? 99)
       );
@@ -80,6 +111,8 @@ export default function Home() {
       setStatusMessage(
         `Done! Found ${auditedLeads.length} leads for ${category} in ${neighborhood}.`
       );
+
+      refreshSavedLeads();
     } catch (err) {
       setPhase("error");
       setStatusMessage(
@@ -88,7 +121,40 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }, [neighborhood, category]);
+  }, [neighborhood, category, refreshSavedLeads]);
+
+  const handleSaveLead = useCallback(
+    async (lead: Lead) => {
+      try {
+        const res = await fetch("/api/leads", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(lead),
+        });
+
+        if (res.status === 409) {
+          return { success: false, duplicate: true };
+        }
+
+        if (!res.ok) throw new Error("Save failed");
+
+        const { lead: savedLead } = await res.json();
+        setSavedLeadMap((prev) => {
+          const next = new Map(prev);
+          next.set(leadKey(lead), {
+            id: savedLead.id,
+            emailStatus: savedLead.emailStatus,
+          });
+          return next;
+        });
+        refreshSavedLeads();
+        return { success: true, savedId: savedLead.id };
+      } catch {
+        return { success: false, duplicate: false };
+      }
+    },
+    [refreshSavedLeads]
+  );
 
   // Compute lead category counts
   const leadCounts: Record<string, number> = {};
@@ -96,6 +162,15 @@ export default function Home() {
     const cat = lead.leadCategory || "UNKNOWN";
     leadCounts[cat] = (leadCounts[cat] || 0) + 1;
   }
+
+  // Filter leads by email status if filter is set
+  const filteredLeads = emailStatusFilter
+    ? leads.filter((lead) => {
+        const info = savedLeadMap.get(leadKey(lead));
+        if (!info) return emailStatusFilter === "not_saved";
+        return info.emailStatus === emailStatusFilter;
+      })
+    : leads;
 
   return (
     <div className="flex min-h-screen bg-white">
@@ -107,14 +182,19 @@ export default function Home() {
         onSearch={handleSearch}
         loading={loading}
         leadCounts={leadCounts}
+        outreachStats={outreachStats}
+        emailStatusFilter={emailStatusFilter}
+        onEmailStatusFilterChange={setEmailStatusFilter}
       />
 
       <main className="flex-1 flex flex-col min-h-screen">
         <StatusBar phase={phase} message={statusMessage} />
         <LeadTable
-          leads={leads}
+          leads={filteredLeads}
           onSelectLead={setSelectedLead}
           selectedLead={selectedLead}
+          savedLeadMap={savedLeadMap}
+          leadKey={leadKey}
         />
       </main>
 
@@ -122,6 +202,9 @@ export default function Home() {
         <LeadDetail
           lead={selectedLead}
           onClose={() => setSelectedLead(null)}
+          savedInfo={savedLeadMap.get(leadKey(selectedLead)) || null}
+          onSave={handleSaveLead}
+          onLeadUpdated={refreshSavedLeads}
         />
       )}
     </div>

@@ -70,6 +70,11 @@ export const LEAD_THRESHOLDS: { max: number; label: string; color: string }[] = 
   { max: 10, label: "DO NOT CONTACT", color: "gray" },
 ];
 
+export interface SavedLeadInfo {
+  id: number;
+  emailStatus: string;
+}
+
 export function categorizeScore(score: number): string {
   for (const { max, label } of LEAD_THRESHOLDS) {
     if (score <= max) return label;
