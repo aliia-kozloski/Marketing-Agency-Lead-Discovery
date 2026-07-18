@@ -1,23 +1,31 @@
-import Database from "better-sqlite3";
-import path from "path";
-import fs from "fs";
+import { createClient, Client } from "@libsql/client";
 
-let db: Database.Database | null = null;
+let client: Client | null = null;
 
-export function getDb(): Database.Database {
-  if (db) return db;
+export function getDb(): Client {
+  if (client) return client;
 
-  const dataDir = path.join(process.cwd(), "data");
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
+  const url = process.env.TURSO_DATABASE_URL;
+  const authToken = process.env.TURSO_AUTH_TOKEN;
+
+  if (!url) {
+    throw new Error(
+      "TURSO_DATABASE_URL is not configured. Set up a free Turso database at https://turso.tech"
+    );
   }
 
-  db = new Database(path.join(dataDir, "agency.db"));
-  db.pragma("journal_mode = WAL");
-  db.pragma("foreign_keys = ON");
+  client = createClient({
+    url,
+    authToken,
+  });
 
-  // Create tables if they don't exist
-  db.exec(`
+  return client;
+}
+
+export async function initDb(): Promise<void> {
+  const db = getDb();
+
+  await db.execute(`
     CREATE TABLE IF NOT EXISTS leads (
       id                  INTEGER PRIMARY KEY AUTOINCREMENT,
       name                TEXT NOT NULL,
@@ -50,13 +58,6 @@ export function getDb(): Database.Database {
       created_at          TEXT DEFAULT (datetime('now')),
       updated_at          TEXT DEFAULT (datetime('now')),
       UNIQUE(name, neighborhood, category)
-    );
+    )
   `);
-
-  // Recover any stranded 'sending' states from crashes
-  db.prepare(
-    "UPDATE leads SET email_status = 'draft' WHERE email_status = 'sending'"
-  ).run();
-
-  return db;
 }

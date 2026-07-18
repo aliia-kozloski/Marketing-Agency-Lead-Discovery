@@ -16,12 +16,12 @@ export async function POST(req: NextRequest) {
     const apiKey = process.env.RESEND_API_KEY;
     if (!apiKey) {
       return NextResponse.json(
-        { error: "RESEND_API_KEY is not configured. Add it to your .env file." },
+        { error: "RESEND_API_KEY is not configured. Add it to your environment variables." },
         { status: 500 }
       );
     }
 
-    const lead = getLeadById(leadId);
+    const lead = await getLeadById(leadId);
     if (!lead) {
       return NextResponse.json({ error: "Lead not found" }, { status: 404 });
     }
@@ -33,7 +33,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Basic email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(lead.emailAddress)) {
       return NextResponse.json(
@@ -49,8 +48,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Atomic claim — prevents double sends
-    const claimed = claimLeadForSending(leadId);
+    const claimed = await claimLeadForSending(leadId);
     if (!claimed) {
       return NextResponse.json(
         { error: "Email already sent or currently sending" },
@@ -69,16 +67,14 @@ export async function POST(req: NextRequest) {
       });
 
       if (error) {
-        // Revert to draft on failure
-        updateLead(leadId, { emailStatus: "draft" });
+        await updateLead(leadId, { emailStatus: "draft" });
         return NextResponse.json(
           { error: `Email send failed: ${error.message}` },
           { status: 500 }
         );
       }
 
-      // Mark as sent with Resend message ID
-      const updatedLead = updateLead(leadId, {
+      const updatedLead = await updateLead(leadId, {
         emailStatus: "sent",
         emailSentAt: new Date().toISOString(),
         resendMessageId: data?.id ?? undefined,
@@ -86,8 +82,7 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({ success: true, lead: updatedLead });
     } catch (sendError) {
-      // Revert to draft on any error
-      updateLead(leadId, { emailStatus: "draft" });
+      await updateLead(leadId, { emailStatus: "draft" });
       throw sendError;
     }
   } catch (err) {

@@ -1,4 +1,4 @@
-import { getDb } from "./db";
+import { getDb, initDb } from "./db";
 import type { Lead } from "./types";
 
 export interface SavedLead extends Lead {
@@ -61,7 +61,8 @@ function rowToSavedLead(row: LeadRow): SavedLead {
     yelpUrl: row.yelp_url,
     description: row.description || "",
     aiScore: row.ai_score || 0,
-    visibilityStatus: (row.visibility_status as SavedLead["visibilityStatus"]) || "not_found",
+    visibilityStatus:
+      (row.visibility_status as SavedLead["visibilityStatus"]) || "not_found",
     chatGPTScore: row.chatgpt_score || 0,
     perplexityScore: row.perplexity_score || 0,
     googleAIScore: row.google_ai_score || 0,
@@ -84,54 +85,65 @@ function rowToSavedLead(row: LeadRow): SavedLead {
   };
 }
 
-export function getLeads(filters?: {
+async function ensureTable() {
+  await initDb();
+}
+
+export async function getLeads(filters?: {
   emailStatus?: string;
   neighborhood?: string;
   category?: string;
-}): SavedLead[] {
+}): Promise<SavedLead[]> {
+  await ensureTable();
   const db = getDb();
+
   let sql = "SELECT * FROM leads WHERE 1=1";
-  const params: string[] = [];
+  const args: (string | number)[] = [];
 
   if (filters?.emailStatus) {
     sql += " AND email_status = ?";
-    params.push(filters.emailStatus);
+    args.push(filters.emailStatus);
   }
   if (filters?.neighborhood) {
     sql += " AND neighborhood = ?";
-    params.push(filters.neighborhood);
+    args.push(filters.neighborhood);
   }
   if (filters?.category) {
     sql += " AND category = ?";
-    params.push(filters.category);
+    args.push(filters.category);
   }
 
   sql += " ORDER BY created_at DESC";
 
-  const rows = db.prepare(sql).all(...params) as LeadRow[];
-  return rows.map(rowToSavedLead);
+  const result = await db.execute({ sql, args });
+  return result.rows.map((row) => rowToSavedLead(row as unknown as LeadRow));
 }
 
-export function getLeadById(id: number): SavedLead | null {
+export async function getLeadById(id: number): Promise<SavedLead | null> {
+  await ensureTable();
   const db = getDb();
-  const row = db.prepare("SELECT * FROM leads WHERE id = ?").get(id) as LeadRow | undefined;
-  return row ? rowToSavedLead(row) : null;
+  const result = await db.execute({
+    sql: "SELECT * FROM leads WHERE id = ?",
+    args: [id],
+  });
+  if (result.rows.length === 0) return null;
+  return rowToSavedLead(result.rows[0] as unknown as LeadRow);
 }
 
-export function insertLead(lead: Lead): SavedLead | null {
+export async function insertLead(lead: Lead): Promise<SavedLead | null> {
+  await ensureTable();
   const db = getDb();
+
   try {
-    const result = db
-      .prepare(
-        `INSERT OR IGNORE INTO leads (
-          name, address, neighborhood, category, phone, website,
-          google_rating, google_review_count, instagram_handle, yelp_url,
-          description, ai_score, visibility_status, chatgpt_score,
-          perplexity_score, google_ai_score, chatgpt_response, score_reason,
-          top_gap, quick_win, lead_category
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .run(
+    const result = await db.execute({
+      sql: `INSERT OR IGNORE INTO leads (
+        name, address, neighborhood, category, phone, website,
+        google_rating, google_review_count, instagram_handle, yelp_url,
+        description, ai_score, visibility_status, chatgpt_score,
+        perplexity_score, google_ai_score, chatgpt_response, score_reason,
+        top_gap, quick_win, lead_category
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
         lead.name,
         lead.address,
         lead.neighborhood,
@@ -152,18 +164,20 @@ export function insertLead(lead: Lead): SavedLead | null {
         lead.scoreReason,
         lead.topGap,
         lead.quickWin,
-        lead.leadCategory
-      );
+        lead.leadCategory,
+      ],
+    });
 
-    if (result.changes === 0) return null; // duplicate (UNIQUE constraint)
-    return getLeadById(Number(result.lastInsertRowid));
+    if (result.rowsAffected === 0) return null;
+    const insertedId = Number(result.lastInsertRowid);
+    return getLeadById(insertedId);
   } catch (err) {
     console.error("Failed to insert lead:", err);
     return null;
   }
 }
 
-export function updateLead(
+export async function updateLead(
   id: number,
   updates: Partial<{
     emailAddress: string;
@@ -173,77 +187,86 @@ export function updateLead(
     emailSentAt: string;
     resendMessageId: string;
   }>
-): SavedLead | null {
+): Promise<SavedLead | null> {
+  await ensureTable();
   const db = getDb();
+
   const setClauses: string[] = ["updated_at = datetime('now')"];
-  const params: (string | null)[] = [];
+  const args: (string | number | null)[] = [];
 
   if (updates.emailAddress !== undefined) {
     setClauses.push("email_address = ?");
-    params.push(updates.emailAddress);
+    args.push(updates.emailAddress);
   }
   if (updates.emailSubject !== undefined) {
     setClauses.push("email_subject = ?");
-    params.push(updates.emailSubject);
+    args.push(updates.emailSubject);
   }
   if (updates.emailBody !== undefined) {
     setClauses.push("email_body = ?");
-    params.push(updates.emailBody);
+    args.push(updates.emailBody);
   }
   if (updates.emailStatus !== undefined) {
     setClauses.push("email_status = ?");
-    params.push(updates.emailStatus);
+    args.push(updates.emailStatus);
   }
   if (updates.emailSentAt !== undefined) {
     setClauses.push("email_sent_at = ?");
-    params.push(updates.emailSentAt);
+    args.push(updates.emailSentAt);
   }
   if (updates.resendMessageId !== undefined) {
     setClauses.push("resend_message_id = ?");
-    params.push(updates.resendMessageId);
+    args.push(updates.resendMessageId);
   }
 
-  params.push(String(id));
-  db.prepare(`UPDATE leads SET ${setClauses.join(", ")} WHERE id = ?`).run(
-    ...params
-  );
+  args.push(id);
+  await db.execute({
+    sql: `UPDATE leads SET ${setClauses.join(", ")} WHERE id = ?`,
+    args,
+  });
 
   return getLeadById(id);
 }
 
-export function claimLeadForSending(id: number): boolean {
+export async function claimLeadForSending(id: number): Promise<boolean> {
+  await ensureTable();
   const db = getDb();
-  const result = db
-    .prepare(
-      "UPDATE leads SET email_status = 'sending', updated_at = datetime('now') WHERE id = ? AND email_status != 'sent' AND email_status != 'sending'"
-    )
-    .run(id);
-  return result.changes > 0;
+  const result = await db.execute({
+    sql: "UPDATE leads SET email_status = 'sending', updated_at = datetime('now') WHERE id = ? AND email_status != 'sent' AND email_status != 'sending'",
+    args: [id],
+  });
+  return (result.rowsAffected ?? 0) > 0;
 }
 
-export function deleteLead(id: number): boolean {
+export async function deleteLead(id: number): Promise<boolean> {
+  await ensureTable();
   const db = getDb();
-  const result = db.prepare("DELETE FROM leads WHERE id = ?").run(id);
-  return result.changes > 0;
+  const result = await db.execute({
+    sql: "DELETE FROM leads WHERE id = ?",
+    args: [id],
+  });
+  return (result.rowsAffected ?? 0) > 0;
 }
 
-export function getOutreachStats(): {
+export async function getOutreachStats(): Promise<{
   totalSaved: number;
   emailsDrafted: number;
   emailsSent: number;
-} {
+}> {
+  await ensureTable();
   const db = getDb();
-  const total = (db.prepare("SELECT COUNT(*) as count FROM leads").get() as { count: number }).count;
-  const drafted = (
-    db
-      .prepare("SELECT COUNT(*) as count FROM leads WHERE email_status = 'draft'")
-      .get() as { count: number }
-  ).count;
-  const sent = (
-    db
-      .prepare("SELECT COUNT(*) as count FROM leads WHERE email_status = 'sent'")
-      .get() as { count: number }
-  ).count;
 
-  return { totalSaved: total, emailsDrafted: drafted, emailsSent: sent };
+  const total = await db.execute("SELECT COUNT(*) as count FROM leads");
+  const drafted = await db.execute(
+    "SELECT COUNT(*) as count FROM leads WHERE email_status = 'draft'"
+  );
+  const sent = await db.execute(
+    "SELECT COUNT(*) as count FROM leads WHERE email_status = 'sent'"
+  );
+
+  return {
+    totalSaved: Number(total.rows[0].count),
+    emailsDrafted: Number(drafted.rows[0].count),
+    emailsSent: Number(sent.rows[0].count),
+  };
 }

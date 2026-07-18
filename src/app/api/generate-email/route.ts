@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const lead = getLeadById(leadId);
+    const lead = await getLeadById(leadId);
     if (!lead) {
       return NextResponse.json({ error: "Lead not found" }, { status: 404 });
     }
@@ -76,7 +76,6 @@ Return ONLY the JSON, no explanation, no markdown, no backticks.
         ? response.content[0].text.trim()
         : "";
 
-    // Strip markdown code fences if present
     text = text.replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/, "");
 
     let email;

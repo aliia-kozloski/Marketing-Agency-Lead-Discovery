@@ -10,12 +10,12 @@ export async function GET(req: NextRequest) {
     const statsOnly = searchParams.get("statsOnly");
 
     if (statsOnly === "true") {
-      const stats = getOutreachStats();
+      const stats = await getOutreachStats();
       return NextResponse.json({ stats });
     }
 
-    const leads = getLeads({ emailStatus, neighborhood, category });
-    const stats = getOutreachStats();
+    const leads = await getLeads({ emailStatus, neighborhood, category });
+    const stats = await getOutreachStats();
     return NextResponse.json({ leads, stats });
   } catch (err) {
     console.error("Failed to fetch leads:", err);
@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const saved = insertLead(lead);
+    const saved = await insertLead(lead);
 
     if (!saved) {
       return NextResponse.json(
